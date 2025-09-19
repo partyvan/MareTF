@@ -22,6 +22,7 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #endif
 #ifdef _MSC_VER
@@ -188,9 +189,9 @@ template<> tferr_t& tferr_t::operator<<<tfendl_t>(const tfendl_t&) {
 namespace DistanceMapping {
 
 enum Leaf : uint8_t {
-	IN,         // leaf is opaque
-	OUT,        // leaf is transparent
-	FIGUREITOUT // leaf is mixed but small so you should brute force scan.
+	LEAF_IN,         // leaf is opaque
+	LEAF_OUT,        // leaf is transparent
+	LEAF_FIGUREITOUT // leaf is mixed but small so you should brute force scan.
 };
 
 enum Quadrant : uint8_t {
@@ -232,7 +233,7 @@ public:
 		, offsX(sampleCentered ? this->reduceX / 2 : 0)
 		, offsY(sampleCentered ? this->reduceY / 2 : 0)
 		, alphaThreshold(alphaThreshold)
-		, root([this](){ return scanImg(0, 0, imgWidth, imgHeight); }())
+		, root(this->scanImg(0, 0, imgWidth, imgHeight))
 	{}
 	~QuadTree() { Node::wither(root); }
 
@@ -279,7 +280,7 @@ public:
 	}
 
 	Leaf thresh(float alpha) {
-		return alpha >= alphaThreshold ? IN : OUT;
+		return alpha >= alphaThreshold ? LEAF_IN : LEAF_OUT;
 	}
 
 private:
@@ -294,7 +295,7 @@ private:
 			for (auto jx = ix; jx < tx; jx++)
 				for (auto jy = iy; jy < ty; jy++)
 					if (thresh(sampleClamped(jx, jy)) != curShade)
-						return FIGUREITOUT;
+						return LEAF_FIGUREITOUT;
 
 			return curShade;
 		}
@@ -383,20 +384,20 @@ void paintMap(
 	auto tree = std::make_shared<QuadTree>(srcrgba32323232f, inputWidth, inputHeight, reduceX, reduceY, distanceSpread, sampleCentered);
 	auto cursor = std::make_unique<RasterCursor>(tree.get());
 	uint16_t srcY = 0, srcX = 0, dstW = 0;
-	auto srcShade = FIGUREITOUT;
+	auto srcShade = LEAF_FIGUREITOUT;
 	uint32_t iOut = 3;
 	auto keepPainting = true;
 	do {
 		keepPainting = cursor->getContiguousRun(srcShade, srcY, srcX, dstW);
 		float fillDistance = 1.0f;
 		switch (srcShade) {
-		case OUT:
+		case LEAF_OUT:
 			fillDistance = 0.0f;
-		case IN:
+		case LEAF_IN:
 			for (uint16_t i = 0; i < dstW; i++, iOut += 4)
 				dstrgba32323232f[iOut] = fillDistance;
 			break;
-		case FIGUREITOUT:
+		case LEAF_FIGUREITOUT:
 		default:
 			// oh no we actually have to do work
 			for (uint16_t i = 0; i < dstW; i++, iOut += 4) {
@@ -418,7 +419,7 @@ void paintMap(
 				}
 
 				nearest = fmin(0.5f, nearest * 0.5f / (float) tree->searchRadius);
-				if (stateRef == OUT)
+				if (stateRef == LEAF_OUT)
 					nearest = -nearest;
 
 				dstrgba32323232f[iOut] = 0.5 + nearest;
